@@ -1,0 +1,91 @@
+package Parse;
+
+import java_cup.runtime.*;
+import Absyn.*;
+import Symbol.Symbol;
+import java.util.ArrayList;
+
+parser code {:
+    public ErrorMsg.ErrorMsg errorMsg;
+    private Yylex lexer;
+
+    public void syntax_error(java_cup.runtime.Symbol token) {
+        errorMsg.error(0, "Syntax error");
+    }
+
+    public Grm(Yylex lex, ErrorMsg.ErrorMsg err) {
+        super();
+        lexer = lex;
+        errorMsg = err;
+    }
+
+    public java_cup.runtime.Symbol scan() throws java.lang.Exception {
+        try {
+            return lexer.next_token();
+        } catch (java.lang.Error e) {
+            return new java_cup.runtime.Symbol(sym.EOF);
+        }
+    }
+:};
+
+/* Terminals (tokens returned by the scanner) */
+terminal COMMA, SEMICOLON, LPAREN, RPAREN, LBRACE, RBRACE;
+terminal LBRACK, RBRACK, PLUS, MINUS, TIMES, DIVIDE;
+terminal EQ, NEQ, LT, LE, GT, GE, AND, OR, ASSIGN;
+terminal INT_TYPE, VOID_TYPE, STRUCT, RETURN, IF, ELSE, WHILE, FOR;
+terminal String ID, STRING;
+terminal Integer INT;
+
+/* Non-terminals */
+non terminal ArrayList declaration_list, parameter_list, statement_list;
+non terminal Dec declaration;
+non terminal FieldList parameter;
+non terminal Dec function_definition;
+non terminal Exp compound_statement;
+non terminal Exp statement;
+non terminal Exp expression;
+non terminal Var variable;
+
+/* Precedences */
+precedence left OR;
+precedence left AND;
+precedence nonassoc EQ, NEQ, LT, LE, GT, GE;
+precedence left PLUS, MINUS;
+precedence left TIMES, DIVIDE;
+
+/* The grammar */
+declaration_list ::= declaration_list declaration:d {: RESULT = new ArrayList(); :}
+                  | declaration:d {: RESULT = new ArrayList(); :};
+
+declaration ::= INT_TYPE ID:id SEMICOLON {: RESULT = new VarDec(0, Symbol.symbol(id), null, null); :}
+             | function_definition:fd {: RESULT = fd; :};
+
+function_definition ::= INT_TYPE ID:id LPAREN parameter_list:pl RPAREN compound_statement:cs 
+                       {: RESULT = new FunctionDec(0, Symbol.symbol(id), (FieldList)pl.get(0), null, cs); :};
+
+parameter_list ::= parameter_list:pl COMMA parameter:p {: pl.add(p); RESULT = pl; :}
+                | parameter:p {: ArrayList<FieldList> result = new ArrayList<FieldList>(); result.add(p); RESULT = result; :}
+                | /* empty */ {: RESULT = new ArrayList(); :};
+
+parameter ::= INT_TYPE ID:id {: RESULT = new FieldList(Symbol.symbol(id), Symbol.symbol("int"), null); :};
+
+compound_statement ::= LBRACE statement_list:sl RBRACE {: RESULT = new SeqExp((ArrayList<Exp>)sl); :};
+
+statement_list ::= statement_list:sl statement:s {: sl.add(s); RESULT = sl; :}
+                | /* empty */ {: RESULT = new ArrayList(); :};
+
+statement ::= expression:e SEMICOLON {: RESULT = e; :}
+           | RETURN expression:e SEMICOLON {: RESULT = e; :}
+           | IF LPAREN expression:e RPAREN statement:s {: RESULT = new IfExp(e, s, null); :}
+           | WHILE LPAREN expression:e RPAREN statement:s {: RESULT = new WhileExp(e, s); :}
+           | compound_statement:cs {: RESULT = cs; :};
+
+expression ::= INT:i {: RESULT = new IntExp(i); :}
+            | variable:v {: RESULT = new VarExp(v); :}
+            | expression:e1 PLUS expression:e2 {: RESULT = new OpExp(e1, OpExp.PLUS, e2); :}
+            | expression:e1 MINUS expression:e2 {: RESULT = new OpExp(e1, OpExp.MINUS, e2); :}
+            | expression:e1 TIMES expression:e2 {: RESULT = new OpExp(e1, OpExp.TIMES, e2); :}
+            | expression:e1 DIVIDE expression:e2 {: RESULT = new OpExp(e1, OpExp.DIVIDE, e2); :}
+            | ID:id LPAREN expression:e RPAREN {: ArrayList<Exp> args = new ArrayList<Exp>(); args.add(e); RESULT = new CallExp(new VarExp(new SimpleVar(Symbol.symbol(id))), args); :};
+
+variable ::= ID:id {: RESULT = new SimpleVar(Symbol.symbol(id)); :}; 
