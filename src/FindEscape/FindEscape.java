@@ -25,13 +25,18 @@ import Absyn.FunctionDec;
 import Absyn.FieldList;
 import Absyn.Efield;
 import Absyn.UnaryExpression;
+import Types.QUALIFIED;
+import java.util.ArrayList;
+import java.util.List;
 
 public class FindEscape {
     private Table varEscape;
+    private Table typeEnv; 
     private int depth;
 
     public FindEscape() {
         varEscape = new Table();
+        typeEnv = new Table();  
         depth = 0;
     }
 
@@ -63,7 +68,9 @@ public class FindEscape {
                         VarEscape ve = (VarEscape)varEscape.get(simple.name);
                         if (ve != null) {
                             ve.escape = true;
-                            ve.var.escape = true;
+                            if (ve.var != null) {
+                                ve.var.escape = true;
+                            }
                         }
                     }
                 }
@@ -102,10 +109,12 @@ public class FindEscape {
         } else if (exp instanceof LetExp) {
             LetExp let = (LetExp)exp;
             varEscape.beginScope();
+            typeEnv.beginScope();
             for (Dec dec : let.decs) {
                 traverseDec(depth, dec);
             }
             traverseExp(depth, let.body);
+            typeEnv.endScope();
             varEscape.endScope();
         } else if (exp instanceof ArrayExp) {
             ArrayExp array = (ArrayExp)exp;
@@ -120,9 +129,15 @@ public class FindEscape {
         if (var instanceof SimpleVar) {
             SimpleVar simple = (SimpleVar)var;
             VarEscape ve = (VarEscape)varEscape.get(simple.name);
-            if (ve != null) {
-                ve.escape = true;
-                ve.var.escape = true;
+            if (ve != null && ve.var != null) {
+                Types.Type type = (Types.Type)typeEnv.get(ve.var.name);
+                if (type != null && type instanceof QUALIFIED) {
+                    QUALIFIED qual = (QUALIFIED)type;
+                    if (qual.isVolatile) {
+                        ve.escape = true;
+                        ve.var.escape = true;
+                    }
+                }
             }
         } else if (var instanceof FieldVar) {
             FieldVar field = (FieldVar)var;
@@ -139,24 +154,35 @@ public class FindEscape {
 
         if (dec instanceof VarDec) {
             VarDec varDec = (VarDec)dec;
-            if (varDec.typ != null && varDec.typ.toString().contains("volatile")) {
-                varDec.escape = true;
-            } else {
-                varDec.escape = false;
+            Types.Type type = (Types.Type)typeEnv.get(varDec.name);
+            if (type != null && type instanceof QUALIFIED) {
+                QUALIFIED qual = (QUALIFIED)type;
+                if (qual.isVolatile) {
+                    varDec.escape = true;
+                }
             }
             varEscape.put(varDec.name, new VarEscape(depth, varDec));
+            typeEnv.put(varDec.name, type);  // Store type in environment
             traverseExp(depth, varDec.init);
         } else if (dec instanceof FunctionDec) {
             FunctionDec funcDec = (FunctionDec)dec;
             varEscape.beginScope();
+            typeEnv.beginScope();
             
             for (FieldList params = funcDec.params; params != null; params = params.tail) {
                 params.escape = false;
                 varEscape.put(params.name, new VarEscape(depth, null));
+                if (params.typ != null) {
+                    Types.Type paramType = (Types.Type)typeEnv.get(params.name);
+                    if (paramType != null) {
+                        typeEnv.put(params.name, paramType);
+                    }
+                }
             }
             
             traverseExp(depth, funcDec.body);
             
+            typeEnv.endScope();
             varEscape.endScope();
         }
     }
